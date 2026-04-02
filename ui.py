@@ -344,19 +344,13 @@ def divider():
 def explanation_pill(text: str):
     st.markdown(f"<div class='pill'>💡 {text}</div>", unsafe_allow_html=True)
 
+# --- ui.py ---
 
-def movie_card(movie: dict, show_wl_btn: bool = True, delay: int = 0):
-    """
-    Render one movie card.
+# UPDATE: Added 'delay' to the unique_key to guarantee uniqueness
+# --- ui.py ---
 
-    FIX — WATCHLIST NOW SAVES:
-      add_to_watchlist() is called with all 6 parameters including overview.
-      The previous version was missing overview which caused a TypeError
-      silently swallowing the save operation.
-
-    FIX — NO DUPLICATE KEYS:
-      Button key = f"wl_{mid}_{_next_key()}" — globally unique per run.
-    """
+def movie_card(movie: dict, show_wl_btn: bool = True, delay: int = 0, context: str = "gen"):
+    """Render one movie card with a unique key based on context and delay."""
     title   = str(movie.get("title", "Unknown"))
     mid_raw = movie.get("movie_id") or movie.get("movieId", 0)
     try:
@@ -368,19 +362,14 @@ def movie_card(movie: dict, show_wl_btn: bool = True, delay: int = 0):
     genres   = str(movie.get("genres", ""))
     overview = truncate(str(movie.get("overview", "")), 130)
 
-    # Safe watchlist check — works outside Streamlit runtime too
     try:
         in_wl = in_watchlist(mid)
     except Exception:
         in_wl = False
 
-    # Poster resolution — use stored URL first, then call API
     poster = movie.get("poster_url", "")
     if not poster or poster == PLACEHOLDER:
-        poster = get_poster_url(
-            title=title,
-            poster_path=movie.get("poster_path", ""),
-        )
+        poster = get_poster_url(title=title, poster_path=movie.get("poster_path", ""))
 
     badge      = "<div class='wl-badge'>✓</div>" if in_wl else ""
     genre_html = _genre_chips_html(genres)
@@ -389,8 +378,7 @@ def movie_card(movie: dict, show_wl_btn: bool = True, delay: int = 0):
     st.markdown(
         f"<div class='movie-card' style='{delay_css}'>"
         f"  {badge}"
-        f"  <img src='{poster}' alt='{title}' loading='lazy'"
-        f"       onerror=\"this.onerror=null;this.src='{PLACEHOLDER}'\"/>"
+        f"  <img src='{poster}' alt='{title}' loading='lazy' onerror=\"this.onerror=null;this.src='{PLACEHOLDER}'\"/>"
         f"  <div class='card-body'>"
         f"    <div class='card-title' title='{title}'>{title}</div>"
         f"    <div class='card-rating'>{star_display(rating)}</div>"
@@ -402,38 +390,82 @@ def movie_card(movie: dict, show_wl_btn: bool = True, delay: int = 0):
     )
 
     if show_wl_btn and mid:
-        btn_label  = "✓ Saved" if in_wl else "+ Watchlist"
-        unique_key = f"wl_{mid}_{_next_key()}"   # ← UNIQUE KEY FIX
+        btn_label = "✓ Saved" if in_wl else "+ Watchlist"
+        # FIX: The key is now guaranteed to be unique
+        unique_key = f"btn_{context}_{mid}_{delay}" 
 
         if st.button(btn_label, key=unique_key, use_container_width=True):
             if not in_wl:
-                # ── WATCHLIST FIX: pass all 6 params including overview ──────
                 added = add_to_watchlist(
-                    movie_id  = mid,
-                    title     = title,
-                    poster_url= poster,
-                    rating    = float(rating) if rating else 0.0,
-                    genres    = genres,
-                    overview  = str(movie.get("overview", "")),  # ← THE FIX
+                    movie_id=mid, title=title, poster_url=poster,
+                    rating=float(rating), genres=genres, overview=movie.get("overview", "")
                 )
                 if added:
-                    st.toast(f"✅ **{title}** added to Watchlist!")
+                    st.toast(f"✅ **{title}** added!")
                     st.rerun()
 
+def movie_grid(movies, cols: int = 4, show_wl_btn: bool = True, context: str = "grid"):
+    """Render a responsive grid of movie cards, passing context to movie_card."""
+    records = []
+    if hasattr(movies, "iterrows"):
+        for _, row in movies.iterrows():
+            records.append({
+                "movie_id":   row.get("movieId", row.get("movie_id", 0)),
+                "title":      row.get("title", ""),
+                "poster_url": get_poster_url(title=row.get("title", ""), poster_path=row.get("poster_path", "")),
+                "rating":     row.get("vote_average", 0),
+                "genres":     row.get("genres", ""),
+                "overview":   row.get("overview", ""),
+            })
+    else:
+        records = [dict(m) for m in movies]
 
-def movie_grid(movies, cols: int = 4, show_wl_btn: bool = True):
+    if not records:
+        st.info("No movies to display.")
+        return
+
+    grid = st.columns(cols)
+    for i, m in enumerate(records):
+        with grid[i % cols]:
+            # FIX: We pass the context here so it reaches movie_card
+            movie_card(m, show_wl_btn=show_wl_btn, delay=i, context=context)
+# UPDATE: movie_grid MUST pass the context down to movie_card
+def movie_grid(movies, cols: int = 4, show_wl_btn: bool = True, context: str = "grid"):
+    # ... keep your existing logic for records ...
+    records = []
+    if hasattr(movies, "iterrows"):
+        for _, row in movies.iterrows():
+            records.append({
+                "movie_id": row.get("movieId", row.get("movie_id", 0)),
+                "title": row.get("title", ""),
+                "poster_url": get_poster_url(title=row.get("title", ""), poster_path=row.get("poster_path", "")),
+                "rating": row.get("vote_average", 0),
+                "genres": row.get("genres", ""),
+                "overview": row.get("overview", ""),
+            })
+    else:
+        records = [dict(m) for m in movies]
+
+    if not records:
+        st.info("No movies to display.")
+        return
+
+    grid = st.columns(cols)
+    for i, m in enumerate(records):
+        with grid[i % cols]:
+            # PASSING CONTEXT HERE
+            movie_card(m, show_wl_btn=show_wl_btn, delay=i, context=context)
+
+
+def movie_grid(movies, cols: int = 4, show_wl_btn: bool = True, context: str = "grid"):
     """
     Render a responsive grid of movie cards.
-
-    FIX — HANDLES BOTH DataFrame AND list of dicts cleanly.
-    FIX — 'Top Rated' was showing empty because trending() returns a
-    DataFrame with 'movieId' but movie_grid was looking for 'movie_id'.
-    Now both column names are handled.
+    FIX: Now accepts 'context' to prevent DuplicateWidgetID errors.
     """
     records = []
 
     if hasattr(movies, "iterrows"):
-        # DataFrame path — handle both movieId and movie_id column names
+        # DataFrame path
         for _, row in movies.iterrows():
             mid = row.get("movieId", row.get("movie_id", 0))
             records.append({
@@ -448,7 +480,7 @@ def movie_grid(movies, cols: int = 4, show_wl_btn: bool = True):
                 "overview":   row.get("overview", ""),
             })
     else:
-        # List of dicts path (e.g. OMDB trending, watchlist)
+        # List of dicts path
         records = [dict(m) for m in movies]
 
     if not records:
@@ -458,7 +490,8 @@ def movie_grid(movies, cols: int = 4, show_wl_btn: bool = True):
     grid = st.columns(cols)
     for i, m in enumerate(records):
         with grid[i % cols]:
-            movie_card(m, show_wl_btn=show_wl_btn, delay=i)
+            # FIX: We pass the 'context' variable down to movie_card
+            movie_card(m, show_wl_btn=show_wl_btn, delay=i, context=context)
 
 
 def surprise_card(movie: dict):

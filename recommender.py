@@ -1,11 +1,3 @@
-"""
-recommender.py  —  FAST VERSION
-================================
-Collaborative filtering is DISABLED for speed.
-Content-based TF-IDF loads in ~5 seconds for 62k movies.
-App is ready almost instantly.
-"""
-
 import numpy as np
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -13,7 +5,6 @@ from sklearn.metrics.pairwise import cosine_similarity
 import warnings
 
 warnings.filterwarnings("ignore")
-
 
 MOOD_GENRE_MAP = {
     "😊 Happy":        ["Comedy", "Family", "Animation", "Music"],
@@ -51,7 +42,6 @@ ALL_GENRES = [
     "war", "music", "western", "documentary",
 ]
 
-
 class ContentBasedRecommender:
     def __init__(self):
         self.vectorizer   = TfidfVectorizer(
@@ -75,7 +65,7 @@ class ContentBasedRecommender:
         soup             = self.movies_df.apply(self._soup, axis=1)
         self.tfidf_matrix = self.vectorizer.fit_transform(soup)
         self.movie_index  = {
-            str(t).lower(): i
+            str(t).lower().strip(): i
             for i, t in enumerate(self.movies_df["title"])
         }
         print(f"  [Content] Done — {self.tfidf_matrix.shape}")
@@ -170,7 +160,6 @@ class ContentBasedRecommender:
         top    = np.argsort(scores)[::-1][:n]
         return self.movies_df.iloc[top], None, []
 
-
 class HybridRecommender:
     def __init__(self):
         self.cb        = ContentBasedRecommender()
@@ -218,7 +207,6 @@ class HybridRecommender:
 
     def search(self, query, n=10):
         return self.cb.search(query, n)
-
 
 def build_recommender(movies_df, ratings_df=None):
     model = HybridRecommender()

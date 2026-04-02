@@ -126,23 +126,26 @@ def page_home():
         divider()
 
     # Live trending from OMDB
+  # --- Inside page_home() in app.py ---
+
+    # Live trending from OMDB
     omdb_trending = fetch_trending(n=8)
     if omdb_trending:
         section_header("🔥 Trending Now", "Fetched live via OMDB API")
-        movie_grid(omdb_trending, cols=4)
+        movie_grid(omdb_trending, cols=4, context="home_trending") # Added context
         divider()
 
     # Top-rated from dataset
     section_header("⭐ Top Rated")
-    movie_grid(model.trending(n=8), cols=4)
+    movie_grid(model.trending(n=8), cols=4, context="home_toprated") # Added context
     divider()
+# --- app.py (Browse by Genre section) ---
 
     # Browse by genre tabs
     section_header("🎭 Browse by Genre")
-    genre_list = ["Action", "Comedy", "Drama", "Thriller",
-                  "Science Fiction", "Romance", "Horror", "Animation"]
-    tabs = st.tabs(genre_list[:6])
-    for tab, genre in zip(tabs, genre_list[:6]):
+    genre_list = ["Action", "Comedy", "Drama", "Thriller", "Science Fiction", "Romance"]
+    tabs = st.tabs(genre_list)
+    for tab, genre in zip(tabs, genre_list):
         with tab:
             mask = movies_df["genres"].str.contains(genre, case=False, na=False)
             gdf  = movies_df[mask]
@@ -150,7 +153,12 @@ def page_home():
                 gdf = gdf.nlargest(8, "vote_average")
             else:
                 gdf = gdf.head(8)
-            movie_grid(gdf, cols=4)
+            
+            # FIX: Added unique context for each genre tab
+            movie_grid(gdf, cols=4, context=f"home_{genre.replace(' ', '_')}")
+    # Browse by genre tabs
+   # Browse by genre tabs
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

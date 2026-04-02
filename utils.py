@@ -85,23 +85,20 @@ def load_ratings() -> pd.DataFrame:
 # WATCHLIST
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# --- utils.py (Modified init_watchlist) ---
+
 def init_watchlist():
-    """
-    Initialise watchlist in session_state.
-    ─ BUG FIX: was loading from 'watchlist.json' (CWD) but saving to
-      WATCHLIST_FILE (data/watchlist.json). Now uses WATCHLIST_FILE everywhere.
-    ─ Safe to call outside `streamlit run` (test_app.py) via try/except.
-    """
-    try:
-        if "watchlist" not in st.session_state:
-            # Load persisted watchlist from the correct path
+    if "watchlist" not in st.session_state:
+        if os.path.exists(WATCHLIST_FILE):
             try:
-                with open(WATCHLIST_FILE, "r") as f:          # ← FIX: was "watchlist.json"
-                    st.session_state["watchlist"] = json.load(f)
-            except (FileNotFoundError, json.JSONDecodeError):
+                with open(WATCHLIST_FILE, "r") as f:
+                    data = json.load(f)
+                    # Ensure data is a list to avoid iterable errors
+                    st.session_state["watchlist"] = data if isinstance(data, list) else []
+            except Exception:
                 st.session_state["watchlist"] = []
-    except Exception:
-        pass  # outside Streamlit runtime (test_app.py) — safe to skip
+        else:
+            st.session_state["watchlist"] = []
 
 
 def _persist_watchlist():

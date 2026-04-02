@@ -1,0 +1,18 @@
+[
+  {
+    "movie_id": 20,
+    "title": "Money Train (1995)",
+    "poster_url": "https://via.placeholder.com/300x450/1a1a2e/E50914?text=No+Poster",
+    "rating": 0.0,
+    "genres": "Action|Comedy|Crime|Drama|Thriller",
+    "overview": ""
+  },
+  {
+    "movie_id": 6,
+    "title": "Heat (1995)",
+    "poster_url": "https://via.placeholder.com/300x450/1a1a2e/E50914?text=No+Poster",
+    "rating": 0.0,
+    "genres": "Action|Crime|Thriller",
+    "overview": ""
+  }
+]
