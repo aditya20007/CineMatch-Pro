@@ -4,7 +4,14 @@ test_app.py
 Run ALL functions to verify everything works before launching.
 Usage:  python test_app.py
 """
+import streamlit as st
 
+# ✅ Mock session state for testing
+if not hasattr(st, "session_state"):
+    st.session_state = {}
+
+if "watchlist" not in st.session_state:
+    st.session_state["watchlist"] = []
 print("=" * 55)
 print("  CineMatch Pro — Full Function Test")
 print("=" * 55)
