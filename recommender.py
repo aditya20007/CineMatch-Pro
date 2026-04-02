@@ -1,3 +1,14 @@
+"""
+recommender.py  —  FAST VERSION with Pickle Cache
+==================================================
+- Pickle cache: saves TF-IDF matrix after first build
+  → 2nd startup takes ~0.5s instead of 5s
+- Content-Based TF-IDF on genres + overview + title
+- Works on Python 3.12, no heavy dependencies
+"""
+
+import os
+import pickle
 import numpy as np
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -6,6 +17,11 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
+# ─── Cache file location ────────────────────────────────────────────────────
+CACHE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "data", "tfidf_cache.pkl")
+
+# ─── Mood → genre mapping ───────────────────────────────────────────────────
 MOOD_GENRE_MAP = {
     "😊 Happy":        ["Comedy", "Family", "Animation", "Music"],
     "😢 Sad":          ["Drama", "Romance"],
@@ -42,7 +58,10 @@ ALL_GENRES = [
     "war", "music", "western", "documentary",
 ]
 
+
 class ContentBasedRecommender:
+    """TF-IDF content recommender with pickle cache for fast re-starts."""
+
     def __init__(self):
         self.vectorizer   = TfidfVectorizer(
             stop_words="english",
@@ -53,24 +72,72 @@ class ContentBasedRecommender:
         self.movie_index  = {}
         self.movies_df    = None
 
+    # ── Feature soup ──────────────────────────────────────────────────────────
     def _soup(self, row):
-        genres   = str(row.get("genres", "")).replace("|", " ")
+        """Combine genres (3×), title, and first 100 chars of overview."""
+        genres   = str(row.get("genres",   "")).replace("|", " ")
         overview = str(row.get("overview", ""))[:100]
-        title    = str(row.get("title", ""))
+        title    = str(row.get("title",    ""))
         return f"{genres} {genres} {genres} {title} {overview}"
 
-    def fit(self, movies_df):
-        print("  [Content] Building TF-IDF ...")
-        self.movies_df   = movies_df.copy().reset_index(drop=True)
-        soup             = self.movies_df.apply(self._soup, axis=1)
-        self.tfidf_matrix = self.vectorizer.fit_transform(soup)
-        self.movie_index  = {
+    # ── Fit ───────────────────────────────────────────────────────────────────
+    def fit(self, movies_df: pd.DataFrame):
+        """
+        Build TF-IDF matrix.
+        Loads from pickle cache if it exists and the movie count matches,
+        otherwise builds fresh and saves to cache.
+        """
+        self.movies_df = movies_df.copy().reset_index(drop=True)
+
+        # ── Try loading from cache ───────────────────────────────────────────
+        if os.path.exists(CACHE_PATH):
+            try:
+                with open(CACHE_PATH, "rb") as f:
+                    data = pickle.load(f)
+
+                # Validate cache matches current dataset size
+                if (data.get("n_movies") == len(self.movies_df)
+                        and data.get("matrix") is not None):
+                    self.tfidf_matrix = data["matrix"]
+                    self.vectorizer   = data["vec"]
+                    print("  [Content] Loaded from cache ✓")
+                else:
+                    raise ValueError("Cache mismatch — rebuilding")
+
+            except Exception as e:
+                print(f"  [Content] Cache invalid ({e}) — rebuilding …")
+                self._build_and_cache()
+        else:
+            self._build_and_cache()
+
+        # Build title → index lookup
+        self.movie_index = {
             str(t).lower().strip(): i
             for i, t in enumerate(self.movies_df["title"])
         }
-        print(f"  [Content] Done — {self.tfidf_matrix.shape}")
+        print(f"  [Content] Ready — {self.tfidf_matrix.shape}")
 
-    def _idx(self, title):
+    def _build_and_cache(self):
+        """Build TF-IDF matrix from scratch and save to cache."""
+        print("  [Content] Building TF-IDF …")
+        soup = self.movies_df.apply(self._soup, axis=1)
+        self.tfidf_matrix = self.vectorizer.fit_transform(soup)
+
+        # Save to cache
+        try:
+            os.makedirs(os.path.dirname(CACHE_PATH), exist_ok=True)
+            with open(CACHE_PATH, "wb") as f:
+                pickle.dump({
+                    "matrix":   self.tfidf_matrix,
+                    "vec":      self.vectorizer,
+                    "n_movies": len(self.movies_df),
+                }, f)
+            print("  [Content] Cache saved ✓")
+        except Exception as e:
+            print(f"  [Content] Could not save cache: {e}")
+
+    # ── Index lookup ──────────────────────────────────────────────────────────
+    def _idx(self, title: str):
         key = str(title).lower().strip()
         if key in self.movie_index:
             return self.movie_index[key]
@@ -79,25 +146,28 @@ class ContentBasedRecommender:
                 return v
         return None
 
-    def similar_to(self, title, n=5):
+    # ── Similarity ────────────────────────────────────────────────────────────
+    def similar_to(self, title: str, n: int = 5) -> pd.DataFrame:
         idx = self._idx(title)
         if idx is None:
             return pd.DataFrame()
-        scores    = cosine_similarity(self.tfidf_matrix[idx], self.tfidf_matrix).flatten()
+        scores      = cosine_similarity(self.tfidf_matrix[idx],
+                                        self.tfidf_matrix).flatten()
         scores[idx] = -1
-        top       = np.argsort(scores)[::-1][:n]
-        result    = self.movies_df.iloc[top].copy()
+        top         = np.argsort(scores)[::-1][:n]
+        result      = self.movies_df.iloc[top].copy()
         result["score"] = scores[top]
         return result
 
-    def similar_to_many(self, titles, n=5):
+    def similar_to_many(self, titles: list, n: int = 5) -> pd.DataFrame:
         acc  = np.zeros(len(self.movies_df))
         excl = set()
         for title in titles:
             idx = self._idx(title)
             if idx is None:
                 continue
-            scores = cosine_similarity(self.tfidf_matrix[idx], self.tfidf_matrix).flatten()
+            scores = cosine_similarity(self.tfidf_matrix[idx],
+                                       self.tfidf_matrix).flatten()
             acc   += scores
             excl.add(idx)
         for i in excl:
@@ -107,31 +177,40 @@ class ContentBasedRecommender:
         result["score"] = acc[top]
         return result
 
-    def mood_movies(self, mood, n=8):
+    def mood_movies(self, mood: str, n: int = 8,
+                    min_rating: float = 0.0,
+                    year_range: tuple = (1900, 2100)) -> pd.DataFrame:
+        """Return top-n movies for a mood, respecting global filters."""
         genres  = MOOD_GENRE_MAP.get(mood, [])
         pattern = "|".join(genres) if genres else ""
+        df      = self.movies_df.copy()
+
+        # Apply filters
+        df = _apply_filters(df, min_rating, year_range)
+
         if not pattern:
-            return self.movies_df.sample(n)
-        mask     = self.movies_df["genres"].str.contains(pattern, case=False, na=False)
-        filtered = self.movies_df[mask]
+            return df.sample(min(n, len(df))) if not df.empty else self.movies_df.sample(n)
+
+        mask     = df["genres"].str.contains(pattern, case=False, na=False)
+        filtered = df[mask]
         if filtered.empty:
-            return self.movies_df.sample(n)
+            return df.sample(min(n, len(df))) if not df.empty else pd.DataFrame()
+
         if "vote_average" in filtered.columns:
             return filtered.nlargest(n, "vote_average")
         return filtered.head(n)
 
-    def search(self, query, n=10):
+    def search(self, query: str, n: int = 10) -> pd.DataFrame:
         q    = str(query).lower()
         mask = self.movies_df["title"].str.lower().str.contains(q, na=False)
         return self.movies_df[mask].head(n)
 
-    def chat_recommend(self, user_text, n=5):
-        user_lower = user_text.lower()
-        ref  = self.search(user_text, n=1)
-        seed = ref.iloc[0]["title"] if not ref.empty else None
-
-        found = [g for g in ALL_GENRES if g in user_lower]
-        extra = []
+    def chat_recommend(self, user_text: str, n: int = 5):
+        user_lower    = user_text.lower()
+        ref           = self.search(user_text, n=1)
+        seed          = ref.iloc[0]["title"] if not ref.empty else None
+        found         = [g for g in ALL_GENRES if g in user_lower]
+        extra         = []
         for tone, mapped in TONE_GENRE_MAP.items():
             if tone in user_lower:
                 extra.extend(mapped)
@@ -142,14 +221,16 @@ class ContentBasedRecommender:
             if not recs.empty:
                 if genres_to_use:
                     pat      = "|".join(genres_to_use)
-                    filtered = recs[recs["genres"].str.contains(pat, case=False, na=False)]
+                    filtered = recs[recs["genres"].str.contains(
+                        pat, case=False, na=False)]
                     if not filtered.empty:
                         return filtered.head(n), seed, genres_to_use
                 return recs.head(n), seed, genres_to_use
 
         if genres_to_use:
             pat      = "|".join(genres_to_use)
-            mask     = self.movies_df["genres"].str.contains(pat, case=False, na=False)
+            mask     = self.movies_df["genres"].str.contains(
+                pat, case=False, na=False)
             filtered = self.movies_df[mask]
             if "vote_average" in filtered.columns:
                 filtered = filtered.nlargest(n * 2, "vote_average")
@@ -160,55 +241,99 @@ class ContentBasedRecommender:
         top    = np.argsort(scores)[::-1][:n]
         return self.movies_df.iloc[top], None, []
 
+
+# ─── Filter helper ───────────────────────────────────────────────────────────
+
+def _apply_filters(df: pd.DataFrame,
+                   min_rating: float = 0.0,
+                   year_range: tuple = (1900, 2100)) -> pd.DataFrame:
+    """Apply rating + year filters safely (handles missing columns)."""
+    result = df.copy()
+
+    if "vote_average" in result.columns and min_rating > 0:
+        result = result[result["vote_average"].fillna(0) >= min_rating]
+
+    if year_range != (1900, 2100):
+        y_min, y_max = year_range
+        if "release_date" in result.columns:
+            years = (result["release_date"]
+                     .astype(str).str[:4]
+                     .apply(lambda x: int(x) if x.isdigit() else 0))
+            result = result[years.between(y_min, y_max)]
+
+    return result if not result.empty else df
+
+
+# ─── Hybrid wrapper ──────────────────────────────────────────────────────────
+
 class HybridRecommender:
+    """Wraps ContentBasedRecommender and adds filter support."""
+
     def __init__(self):
         self.cb        = ContentBasedRecommender()
         self.movies_df = None
 
-    def fit(self, movies_df, ratings_df=None):
-        print("\n[Recommender] Training ...")
+    def fit(self, movies_df: pd.DataFrame, ratings_df=None):
+        print("\n[Recommender] Training …")
         self.movies_df = movies_df.copy()
         self.cb.fit(movies_df)
-        print("[Recommender] Ready\n")
+        print("[Recommender] Ready ✓\n")
 
-    def recommend_by_movie(self, title, n=5):
-        result = self.cb.similar_to(title, n=n)
+    def recommend_by_movie(self, title: str, n: int = 5,
+                           min_rating: float = 0.0,
+                           year_range: tuple = (1900, 2100)):
+        result = self.cb.similar_to(title, n=n * 3)
         if result.empty:
             return pd.DataFrame(), f'"{title}" not found.'
-        row    = self.movies_df[self.movies_df["title"].str.lower() == title.lower()]
+        result = _apply_filters(result, min_rating, year_range).head(n)
+        row    = self.movies_df[
+            self.movies_df["title"].str.lower() == title.lower()
+        ]
         genres = row.iloc[0]["genres"] if not row.empty else "Similar"
         return result, f'Because you liked **{title}** ({genres})'
 
-    def recommend_by_taste(self, titles, n=5):
-        result    = self.cb.similar_to_many(titles, n=n)
-        taste_str = "  .  ".join(titles)
+    def recommend_by_taste(self, titles: list, n: int = 5,
+                           min_rating: float = 0.0,
+                           year_range: tuple = (1900, 2100)):
+        result    = self.cb.similar_to_many(titles, n=n * 2)
+        result    = _apply_filters(result, min_rating, year_range).head(n)
+        taste_str = "  ·  ".join(titles)
         return result, f'Based on your taste in: **{taste_str}**'
 
-    def recommend_by_mood(self, mood, n=8):
-        return self.cb.mood_movies(mood, n=n)
+    def recommend_by_mood(self, mood: str, n: int = 8,
+                          min_rating: float = 0.0,
+                          year_range: tuple = (1900, 2100)):
+        return self.cb.mood_movies(mood, n=n,
+                                   min_rating=min_rating,
+                                   year_range=year_range)
 
-    def chat_recommend(self, user_text, n=5):
+    def chat_recommend(self, user_text: str, n: int = 5):
         return self.cb.chat_recommend(user_text, n=n)
 
-    def trending(self, n=12):
-        df = self.movies_df
-        if "vote_average" in df.columns:
+    def trending(self, n: int = 12,
+                 min_rating: float = 0.0,
+                 year_range: tuple = (1900, 2100)):
+        df = _apply_filters(self.movies_df, min_rating, year_range)
+        if "vote_average" in df.columns and not df.empty:
             top50 = df[df["vote_average"] > 0].nlargest(50, "vote_average")
             return top50.sample(min(n, len(top50)))
-        return df.sample(min(n, len(df)))
+        return df.sample(min(n, len(df))) if not df.empty else self.movies_df.sample(n)
 
-    def surprise_me(self):
-        df = self.movies_df
-        if "vote_average" in df.columns:
+    def surprise_me(self, min_rating: float = 0.0,
+                    year_range: tuple = (1900, 2100)):
+        df = _apply_filters(self.movies_df, min_rating, year_range)
+        if "vote_average" in df.columns and not df.empty:
             good = df[df["vote_average"] >= 7.5]
             if not good.empty:
                 return good.sample(1).iloc[0].to_dict()
-        return df.sample(1).iloc[0].to_dict()
+        return df.sample(1).iloc[0].to_dict() if not df.empty else {}
 
-    def search(self, query, n=10):
+    def search(self, query: str, n: int = 10):
         return self.cb.search(query, n)
 
-def build_recommender(movies_df, ratings_df=None):
+
+def build_recommender(movies_df: pd.DataFrame,
+                      ratings_df=None) -> HybridRecommender:
     model = HybridRecommender()
     model.fit(movies_df, ratings_df)
     return model

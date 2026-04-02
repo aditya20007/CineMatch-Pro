@@ -1,11 +1,13 @@
 """
-ui.py  —  CineMatch Pro · Production UI
-========================================
-FIXES IN THIS VERSION:
-  1. Watchlist now saves correctly — add_to_watchlist() called with overview param
-  2. movie_card key uses global atomic counter — no DuplicateWidgetID ever
-  3. movie_grid handles both DataFrame and list of dicts cleanly
-  4. All try/except guards so nothing crashes outside streamlit run
+ui.py  —  CineMatch Pro · Production UI v3
+==========================================
+NEW IN THIS VERSION:
+  1. ▶ Trailer button on every movie card (YouTube search link)
+  2. ⚙️ Global Filters in sidebar (min rating + year range)
+  3. 👤 Developer profile card in sidebar
+  4. Watchlist saves correctly (overview param fixed)
+  5. No DuplicateWidgetID (global atomic counter)
+  6. Top Rated works (handles both movieId / movie_id columns)
 """
 
 import streamlit as st
@@ -14,9 +16,7 @@ from utils import star_display, genre_tags, truncate, add_to_watchlist, in_watch
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# GLOBAL ATOMIC COUNTER — prevents DuplicateWidgetID on any page
-# Streamlit resets module globals on every script run, so this always
-# starts at 0 and increments once per card rendered.
+# GLOBAL ATOMIC COUNTER — unique button keys every run
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _CARD_COUNTER = 0
@@ -64,7 +64,8 @@ def _genre_color(genre: str) -> str:
 def _genre_chips_html(genres_raw: str, max_n: int = 3) -> str:
     if not genres_raw or str(genres_raw).strip() in ("", "nan", "N/A"):
         return ""
-    parts = [g.strip() for g in str(genres_raw).replace("|", ",").split(",") if g.strip()][:max_n]
+    parts = [g.strip() for g in str(genres_raw).replace("|", ",").split(",")
+             if g.strip()][:max_n]
     chips = "".join(
         f"<span class='genre-chip' style='"
         f"color:{_genre_color(g)};border-color:{_genre_color(g)}55;"
@@ -75,7 +76,7 @@ def _genre_chips_html(genres_raw: str, max_n: int = 3) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CSS — Full cinematic dark theme
+# CSS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def inject_css():
@@ -98,41 +99,37 @@ def inject_css():
     --r2:    10px;
 }
 
-/* ── Hide leaked Streamlit keyboard icon ── */
+/* ── Hide leaked Streamlit icon ── */
 [class*="keyboard"],[data-icon*="keyboard"],
-span.material-icons,span.material-symbols-outlined { display:none !important; }
+span.material-icons,span.material-symbols-outlined{display:none !important;}
 
 /* ── Base ── */
-html, body, .stApp {
-    background:var(--bg) !important; color:var(--txt) !important;
-    font-family:'Outfit',sans-serif !important;
-}
-.stApp {
+html,body,.stApp{background:var(--bg) !important;color:var(--txt) !important;font-family:'Outfit',sans-serif !important;}
+.stApp{
     background:
-        radial-gradient(ellipse 120% 60% at 15% 10%, rgba(229,9,20,0.05) 0%,transparent 55%),
-        radial-gradient(ellipse 80% 50% at 85% 85%, rgba(0,212,255,0.025) 0%,transparent 55%),
+        radial-gradient(ellipse 120% 60% at 15% 10%,rgba(229,9,20,0.05) 0%,transparent 55%),
+        radial-gradient(ellipse 80% 50% at 85% 85%,rgba(0,212,255,0.025) 0%,transparent 55%),
         #04040C !important;
 }
-.stApp::before {
-    content:''; position:fixed; inset:0; pointer-events:none; z-index:0;
+.stApp::before{
+    content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
     background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.022'/%3E%3C/svg%3E");
-    opacity:0.4; animation:grain 0.5s steps(3) infinite;
+    opacity:0.4;animation:grain 0.5s steps(3) infinite;
 }
-@keyframes grain { 0%{transform:translate(0,0)} 33%{transform:translate(-2px,1px)} 66%{transform:translate(1px,-2px)} 100%{transform:translate(-1px,2px)} }
-
-.stApp > header{background:transparent !important;}
+@keyframes grain{0%{transform:translate(0,0)}33%{transform:translate(-2px,1px)}66%{transform:translate(1px,-2px)}100%{transform:translate(-1px,2px)}}
+.stApp>header{background:transparent !important;}
 #MainMenu,footer,.stDeployButton,[data-testid="stToolbar"]{display:none !important;}
 
 /* ── Sidebar ── */
-[data-testid="stSidebar"] {
+[data-testid="stSidebar"]{
     background:linear-gradient(180deg,#020208 0%,#050510 50%,#07070E 100%) !important;
     border-right:1px solid rgba(229,9,20,0.12) !important;
     box-shadow:6px 0 40px rgba(0,0,0,0.8) !important;
 }
-[data-testid="stSidebar"]::before {
-    content:''; position:absolute; top:0; left:0; right:0; height:3px;
+[data-testid="stSidebar"]::before{
+    content:'';position:absolute;top:0;left:0;right:0;height:3px;
     background:linear-gradient(90deg,#E50914,#FF8C00,#FFD700,#00D4FF,#E50914);
-    background-size:300% 100%; animation:rainbowShift 4s linear infinite; z-index:999;
+    background-size:300% 100%;animation:rainbowShift 4s linear infinite;z-index:999;
 }
 @keyframes rainbowShift{100%{background-position:300% center}}
 [data-testid="stSidebar"] *{color:var(--txt) !important;}
@@ -140,28 +137,28 @@ html, body, .stApp {
 /* Nav radio */
 [data-testid="stSidebar"] .stRadio>label{display:none;}
 [data-testid="stSidebar"] .stRadio div[role="radiogroup"]{display:flex;flex-direction:column;gap:3px;padding:0 10px;}
-[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label {
-    background:transparent !important; border:1px solid transparent !important;
-    border-radius:var(--r2) !important; padding:13px 18px !important;
-    cursor:pointer !important; font-size:0.97rem !important; font-weight:500 !important;
-    color:var(--muted) !important; transition:all 0.22s cubic-bezier(.4,0,.2,1) !important;
-    display:flex !important; align-items:center !important;
-    position:relative !important; overflow:hidden !important;
+[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label{
+    background:transparent !important;border:1px solid transparent !important;
+    border-radius:var(--r2) !important;padding:13px 18px !important;
+    cursor:pointer !important;font-size:0.97rem !important;font-weight:500 !important;
+    color:var(--muted) !important;transition:all 0.22s cubic-bezier(.4,0,.2,1) !important;
+    display:flex !important;align-items:center !important;
+    position:relative !important;overflow:hidden !important;
 }
-[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label::before {
-    content:''; position:absolute; left:0; top:50%; transform:translateY(-50%);
-    width:3px; height:0; background:linear-gradient(180deg,#FF2030,var(--acc));
-    border-radius:0 3px 3px 0; transition:height 0.22s;
+[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label::before{
+    content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);
+    width:3px;height:0;background:linear-gradient(180deg,#FF2030,var(--acc));
+    border-radius:0 3px 3px 0;transition:height 0.22s;
 }
-[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:hover {
-    color:var(--txt) !important; border-color:rgba(229,9,20,0.18) !important;
-    transform:translateX(5px) !important; background:rgba(229,9,20,0.06) !important;
+[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:hover{
+    color:var(--txt) !important;border-color:rgba(229,9,20,0.18) !important;
+    transform:translateX(5px) !important;background:rgba(229,9,20,0.06) !important;
 }
 [data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:hover::before{height:55%;}
-[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label[data-checked="true"] {
+[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label[data-checked="true"]{
     background:linear-gradient(135deg,rgba(229,9,20,0.2),rgba(229,9,20,0.06)) !important;
-    color:var(--txt) !important; border-color:rgba(229,9,20,0.32) !important;
-    font-weight:700 !important; box-shadow:0 0 20px rgba(229,9,20,0.1) !important;
+    color:var(--txt) !important;border-color:rgba(229,9,20,0.32) !important;
+    font-weight:700 !important;box-shadow:0 0 20px rgba(229,9,20,0.1) !important;
 }
 [data-testid="stSidebar"] .stRadio div[role="radiogroup"] label[data-checked="true"]::before{height:65%;}
 [data-testid="stSidebar"] .stRadio div[role="radiogroup"] input{display:none !important;}
@@ -199,7 +196,7 @@ html, body, .stApp {
 .movie-card:hover{transform:translateY(-12px) scale(1.03) !important;border-color:rgba(229,9,20,0.55) !important;box-shadow:0 25px 70px rgba(229,9,20,0.3),0 0 0 1px rgba(229,9,20,0.2) !important;z-index:10 !important;}
 .movie-card img{width:100%;aspect-ratio:2/3;object-fit:cover;display:block;transition:transform 0.45s ease,filter 0.3s;background:linear-gradient(160deg,#111120 0%,#1A0A14 100%);min-height:200px;}
 .movie-card:hover img{transform:scale(1.07);filter:brightness(1.12) saturate(1.1);}
-.card-body{padding:0.85rem 1rem 1.1rem;position:relative;z-index:2;background:linear-gradient(180deg,#111120 0%,#0D0D1A 100%);}
+.card-body{padding:0.85rem 1rem 1rem;position:relative;z-index:2;background:linear-gradient(180deg,#111120 0%,#0D0D1A 100%);}
 .card-title{font-weight:700 !important;font-size:0.93rem !important;color:var(--txt) !important;margin:0 0 4px !important;white-space:nowrap !important;overflow:hidden !important;text-overflow:ellipsis !important;}
 .card-rating{font-family:'DM Mono',monospace !important;font-size:0.78rem !important;color:var(--acc) !important;margin-bottom:6px !important;}
 .card-genres{display:flex !important;flex-wrap:wrap !important;gap:4px !important;margin-bottom:8px !important;}
@@ -208,6 +205,25 @@ html, body, .stApp {
 .card-overview{font-size:0.77rem !important;font-weight:300 !important;color:#8888AA !important;line-height:1.48 !important;font-style:italic !important;display:-webkit-box !important;-webkit-line-clamp:3 !important;-webkit-box-orient:vertical !important;overflow:hidden !important;}
 .wl-badge{position:absolute;top:10px;right:10px;z-index:6;background:linear-gradient(135deg,#C50000,#E50914);color:#fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:0.75rem;font-weight:800;box-shadow:0 0 15px rgba(229,9,20,0.6);animation:badgePop 0.35s cubic-bezier(.4,0,.2,1);}
 @keyframes badgePop{0%{transform:scale(0) rotate(-30deg)}80%{transform:scale(1.15) rotate(5deg)}100%{transform:scale(1) rotate(0)}}
+
+/* ── Trailer link button ── */
+.trailer-btn{
+    display:flex; align-items:center; justify-content:center;
+    background:rgba(255,255,255,0.04);
+    color:#FF4040 !important;
+    border:1px solid rgba(255,32,32,0.35);
+    border-radius:8px; padding:5px 8px;
+    font-size:0.8rem; font-weight:700;
+    text-decoration:none !important;
+    transition:all 0.2s; height:33px; gap:5px;
+    letter-spacing:0.04em;
+}
+.trailer-btn:hover{
+    background:rgba(229,9,20,0.15) !important;
+    border-color:rgba(229,9,20,0.6) !important;
+    color:#FF6060 !important;
+    box-shadow:0 0 12px rgba(229,9,20,0.2);
+}
 
 /* ── Pill ── */
 .pill{background:linear-gradient(135deg,rgba(245,197,24,0.1),rgba(245,197,24,0.04));border:1px solid rgba(245,197,24,0.28);border-radius:var(--r2);padding:0.8rem 1.2rem 0.8rem 1.5rem;font-size:0.92rem;font-weight:500;color:var(--acc);margin-bottom:1.3rem;position:relative;overflow:hidden;animation:pillSlide 0.4s cubic-bezier(.4,0,.2,1) both;}
@@ -244,6 +260,9 @@ div[data-testid="stSelectbox"]>div:focus-within{border-color:rgba(229,9,20,0.5) 
 .stTabs [data-baseweb="tab"]:hover{color:var(--txt) !important;background:rgba(229,9,20,0.07) !important;}
 .stTabs [aria-selected="true"]{background:linear-gradient(180deg,rgba(229,9,20,0.15),rgba(229,9,20,0.06)) !important;color:var(--txt) !important;border-color:rgba(229,9,20,0.25) !important;border-bottom:2px solid var(--pri) !important;}
 
+/* ── Sliders ── */
+.stSlider [data-baseweb="slider"] [role="slider"]{background:var(--pri) !important;box-shadow:0 0 8px rgba(229,9,20,0.5) !important;}
+
 /* ── Misc ── */
 ::-webkit-scrollbar{width:5px;height:5px;}
 ::-webkit-scrollbar-track{background:var(--bg);}
@@ -258,7 +277,7 @@ code,pre{font-family:'DM Mono',monospace !important;}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SIDEBAR
+# SIDEBAR  — with Global Filters + Developer Card
 # ═══════════════════════════════════════════════════════════════════════════════
 
 NAV_ITEMS = [
@@ -271,7 +290,13 @@ NAV_ITEMS = [
 ]
 
 def render_sidebar() -> str:
+    """
+    Render sidebar navigation + global filters + developer card.
+    Returns selected page string.
+    Filters are stored in session_state so all pages can read them.
+    """
     with st.sidebar:
+        # ── Logo ──────────────────────────────────────────────────────────────
         st.markdown("""
 <div style="padding:2.5rem 0.8rem 0.4rem;">
     <div style="font-family:'Bebas Neue',sans-serif;font-size:2.3rem;
@@ -288,11 +313,14 @@ def render_sidebar() -> str:
 
         st.markdown("<div class='divider' style='margin:0.5rem 0 0.8rem;'></div>",
                     unsafe_allow_html=True)
+
+        # ── Navigation ────────────────────────────────────────────────────────
         page = st.radio("nav", NAV_ITEMS, label_visibility="collapsed")
 
+        # ── Watchlist counter ─────────────────────────────────────────────────
         wl = len(st.session_state.get("watchlist", []))
         st.markdown(f"""
-<div style="margin:1.5rem 0.5rem 1rem;padding:0.85rem 1.1rem;
+<div style="margin:1.2rem 0.5rem 0.8rem;padding:0.85rem 1.1rem;
     background:linear-gradient(135deg,rgba(229,9,20,0.1),rgba(229,9,20,0.03));
     border:1px solid rgba(229,9,20,0.2);border-radius:10px;
     display:flex;align-items:center;justify-content:space-between;">
@@ -304,17 +332,72 @@ def render_sidebar() -> str:
 </div>
 """, unsafe_allow_html=True)
 
-        st.markdown(
-            "<div style='text-align:center;margin-top:2.5rem;padding-bottom:1rem;"
-            "font-family:\"DM Mono\",monospace;font-size:0.6rem;color:#333355;"
-            "letter-spacing:0.1em;'>PORTFOLIO PROJECT · 2024</div>",
-            unsafe_allow_html=True,
+        st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+
+        # ── ⚙️ GLOBAL FILTERS ─────────────────────────────────────────────────
+        st.markdown("""
+<div style="font-family:'Bebas Neue',sans-serif;font-size:1rem;
+    letter-spacing:0.12em;color:#9999BB;padding:0 0.3rem 0.5rem;">
+    ⚙️ GLOBAL FILTERS
+</div>
+""", unsafe_allow_html=True)
+
+        min_rating = st.slider(
+            "Minimum Rating ⭐",
+            min_value=0.0, max_value=10.0,
+            value=float(st.session_state.get("filter_rating", 0.0)),
+            step=0.5,
+            help="Only show movies with this rating or higher",
         )
+
+        year_range = st.select_slider(
+            "Release Year",
+            options=list(range(1950, 2026)),
+            value=st.session_state.get("filter_years", (1990, 2025)),
+            help="Filter movies by release year range",
+        )
+
+        # Store in session_state so all pages can access
+        st.session_state["filter_rating"] = min_rating
+        st.session_state["filter_years"]  = year_range
+
+        st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+
+        # ── 👤 DEVELOPER CARD ─────────────────────────────────────────────────
+        st.markdown("""
+<div style="background:linear-gradient(135deg,#0E0E1E,#0A0A14);
+    padding:14px 16px;border-radius:12px;
+    border:1px solid rgba(229,9,20,0.25);margin:0 0.3rem;">
+    <div style="font-family:'DM Mono',monospace;font-size:0.62rem;
+        color:#555588;letter-spacing:0.14em;text-transform:uppercase;
+        margin-bottom:4px;">DEVELOPED BY</div>
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:1.1rem;
+        letter-spacing:0.1em;color:#F2F2FF;margin-bottom:10px;">
+        Aditya · Full-Stack AI
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <a href="https://github.com/aditya20007" target="_blank"
+           style="text-decoration:none;display:flex;align-items:center;gap:4px;
+           background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);
+           border-radius:6px;padding:4px 10px;font-size:0.75rem;color:#F2F2FF;
+           transition:all 0.2s;">🚀 GitHub</a>
+        <a href="https://linkedin.com/in/aditya" target="_blank"
+           style="text-decoration:none;display:flex;align-items:center;gap:4px;
+           background:rgba(0,119,181,0.15);border:1px solid rgba(0,119,181,0.3);
+           border-radius:6px;padding:4px 10px;font-size:0.75rem;color:#60B0FF;
+           transition:all 0.2s;">👔 LinkedIn</a>
+    </div>
+</div>
+<div style="text-align:center;margin-top:1rem;padding-bottom:0.5rem;
+    font-family:'DM Mono',monospace;font-size:0.58rem;color:#2A2A3A;
+    letter-spacing:0.08em;">PORTFOLIO PROJECT · 2024</div>
+""", unsafe_allow_html=True)
+
     return page
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# REUSABLE COMPONENTS
+# COMPONENTS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def hero_banner(title: str, subtitle: str):
@@ -344,13 +427,14 @@ def divider():
 def explanation_pill(text: str):
     st.markdown(f"<div class='pill'>💡 {text}</div>", unsafe_allow_html=True)
 
-# --- ui.py ---
 
-# UPDATE: Added 'delay' to the unique_key to guarantee uniqueness
-# --- ui.py ---
-
-def movie_card(movie: dict, show_wl_btn: bool = True, delay: int = 0, context: str = "gen"):
-    """Render one movie card with a unique key based on context and delay."""
+def movie_card(movie: dict, show_wl_btn: bool = True, delay: int = 0):
+    """
+    Render one movie card with:
+      - Poster + title + rating + genre chips + overview
+      - ▶ Trailer button (YouTube search link — no API needed)
+      - + Watchlist button (saves overview too)
+    """
     title   = str(movie.get("title", "Unknown"))
     mid_raw = movie.get("movie_id") or movie.get("movieId", 0)
     try:
@@ -361,6 +445,7 @@ def movie_card(movie: dict, show_wl_btn: bool = True, delay: int = 0, context: s
     rating   = movie.get("rating") or movie.get("vote_average", 0)
     genres   = str(movie.get("genres", ""))
     overview = truncate(str(movie.get("overview", "")), 130)
+    overview_full = str(movie.get("overview", ""))
 
     try:
         in_wl = in_watchlist(mid)
@@ -369,16 +454,21 @@ def movie_card(movie: dict, show_wl_btn: bool = True, delay: int = 0, context: s
 
     poster = movie.get("poster_url", "")
     if not poster or poster == PLACEHOLDER:
-        poster = get_poster_url(title=title, poster_path=movie.get("poster_path", ""))
+        poster = get_poster_url(
+            title=title,
+            poster_path=movie.get("poster_path", ""),
+        )
 
     badge      = "<div class='wl-badge'>✓</div>" if in_wl else ""
     genre_html = _genre_chips_html(genres)
     delay_css  = f"animation-delay:{delay * 0.07}s;" if delay else ""
 
+    # ── Card HTML ──────────────────────────────────────────────────────────────
     st.markdown(
         f"<div class='movie-card' style='{delay_css}'>"
         f"  {badge}"
-        f"  <img src='{poster}' alt='{title}' loading='lazy' onerror=\"this.onerror=null;this.src='{PLACEHOLDER}'\"/>"
+        f"  <img src='{poster}' alt='{title}' loading='lazy'"
+        f"       onerror=\"this.onerror=null;this.src='{PLACEHOLDER}'\"/>"
         f"  <div class='card-body'>"
         f"    <div class='card-title' title='{title}'>{title}</div>"
         f"    <div class='card-rating'>{star_display(rating)}</div>"
@@ -389,83 +479,52 @@ def movie_card(movie: dict, show_wl_btn: bool = True, delay: int = 0, context: s
         unsafe_allow_html=True,
     )
 
-    if show_wl_btn and mid:
-        btn_label = "✓ Saved" if in_wl else "+ Watchlist"
-        # FIX: The key is now guaranteed to be unique
-        unique_key = f"btn_{context}_{mid}_{delay}" 
+    if mid:
+        # ── Action buttons: Watchlist + Trailer ───────────────────────────────
+        c1, c2 = st.columns(2)
 
-        if st.button(btn_label, key=unique_key, use_container_width=True):
-            if not in_wl:
-                added = add_to_watchlist(
-                    movie_id=mid, title=title, poster_url=poster,
-                    rating=float(rating), genres=genres, overview=movie.get("overview", "")
-                )
-                if added:
-                    st.toast(f"✅ **{title}** added!")
-                    st.rerun()
+        with c1:
+            if show_wl_btn:
+                btn_label  = "✓ Saved" if in_wl else "+ Watchlist"
+                unique_key = f"wl_{mid}_{_next_key()}"
+                if st.button(btn_label, key=unique_key, use_container_width=True):
+                    if not in_wl:
+                        added = add_to_watchlist(
+                            movie_id  = mid,
+                            title     = title,
+                            poster_url= poster,
+                            rating    = float(rating) if rating else 0.0,
+                            genres    = genres,
+                            overview  = overview_full,   # ← passes overview
+                        )
+                        if added:
+                            st.toast(f"✅ **{title}** added to Watchlist!")
+                            st.rerun()
 
-def movie_grid(movies, cols: int = 4, show_wl_btn: bool = True, context: str = "grid"):
-    """Render a responsive grid of movie cards, passing context to movie_card."""
-    records = []
-    if hasattr(movies, "iterrows"):
-        for _, row in movies.iterrows():
-            records.append({
-                "movie_id":   row.get("movieId", row.get("movie_id", 0)),
-                "title":      row.get("title", ""),
-                "poster_url": get_poster_url(title=row.get("title", ""), poster_path=row.get("poster_path", "")),
-                "rating":     row.get("vote_average", 0),
-                "genres":     row.get("genres", ""),
-                "overview":   row.get("overview", ""),
-            })
-    else:
-        records = [dict(m) for m in movies]
-
-    if not records:
-        st.info("No movies to display.")
-        return
-
-    grid = st.columns(cols)
-    for i, m in enumerate(records):
-        with grid[i % cols]:
-            # FIX: We pass the context here so it reaches movie_card
-            movie_card(m, show_wl_btn=show_wl_btn, delay=i, context=context)
-# UPDATE: movie_grid MUST pass the context down to movie_card
-def movie_grid(movies, cols: int = 4, show_wl_btn: bool = True, context: str = "grid"):
-    # ... keep your existing logic for records ...
-    records = []
-    if hasattr(movies, "iterrows"):
-        for _, row in movies.iterrows():
-            records.append({
-                "movie_id": row.get("movieId", row.get("movie_id", 0)),
-                "title": row.get("title", ""),
-                "poster_url": get_poster_url(title=row.get("title", ""), poster_path=row.get("poster_path", "")),
-                "rating": row.get("vote_average", 0),
-                "genres": row.get("genres", ""),
-                "overview": row.get("overview", ""),
-            })
-    else:
-        records = [dict(m) for m in movies]
-
-    if not records:
-        st.info("No movies to display.")
-        return
-
-    grid = st.columns(cols)
-    for i, m in enumerate(records):
-        with grid[i % cols]:
-            # PASSING CONTEXT HERE
-            movie_card(m, show_wl_btn=show_wl_btn, delay=i, context=context)
+        with c2:
+            # ── ▶ Trailer button — YouTube search (no API key needed) ─────────
+            search_query = title.replace(" ", "+").replace("'", "")
+            trailer_url  = (
+                f"https://www.youtube.com/results?"
+                f"search_query={search_query}+official+trailer"
+            )
+            st.markdown(
+                f"<a href='{trailer_url}' target='_blank' "
+                f"style='text-decoration:none;display:block;'>"
+                f"<div class='trailer-btn'>▶ Trailer</div>"
+                f"</a>",
+                unsafe_allow_html=True,
+            )
 
 
-def movie_grid(movies, cols: int = 4, show_wl_btn: bool = True, context: str = "grid"):
+def movie_grid(movies, cols: int = 4, show_wl_btn: bool = True):
     """
     Render a responsive grid of movie cards.
-    FIX: Now accepts 'context' to prevent DuplicateWidgetID errors.
+    Handles both DataFrame (movieId column) and list of dicts (movie_id key).
     """
     records = []
 
     if hasattr(movies, "iterrows"):
-        # DataFrame path
         for _, row in movies.iterrows():
             mid = row.get("movieId", row.get("movie_id", 0))
             records.append({
@@ -480,7 +539,6 @@ def movie_grid(movies, cols: int = 4, show_wl_btn: bool = True, context: str = "
                 "overview":   row.get("overview", ""),
             })
     else:
-        # List of dicts path
         records = [dict(m) for m in movies]
 
     if not records:
@@ -490,14 +548,13 @@ def movie_grid(movies, cols: int = 4, show_wl_btn: bool = True, context: str = "
     grid = st.columns(cols)
     for i, m in enumerate(records):
         with grid[i % cols]:
-            # FIX: We pass the 'context' variable down to movie_card
-            movie_card(m, show_wl_btn=show_wl_btn, delay=i, context=context)
+            movie_card(m, show_wl_btn=show_wl_btn, delay=i)
 
 
 def surprise_card(movie: dict):
-    """Full-width featured card for the Surprise Me movie."""
-    title   = str(movie.get("title", "Unknown"))
-    mid_raw = movie.get("movie_id") or movie.get("movieId", 0)
+    """Full-width featured card for Surprise Me."""
+    title           = str(movie.get("title", "Unknown"))
+    mid_raw         = movie.get("movie_id") or movie.get("movieId", 0)
     try:
         mid = int(float(mid_raw))
     except (ValueError, TypeError):
@@ -506,6 +563,7 @@ def surprise_card(movie: dict):
     rating          = movie.get("rating") or movie.get("vote_average", 0)
     genres          = str(movie.get("genres", ""))
     overview        = truncate(str(movie.get("overview", "")), 300)
+    overview_full   = str(movie.get("overview", ""))
     poster          = get_poster_url(title=title, poster_path=movie.get("poster_path", ""))
     genre_chip_html = _genre_chips_html(genres, max_n=5)
 
@@ -532,21 +590,27 @@ def surprise_card(movie: dict):
             f"</div>",
             unsafe_allow_html=True,
         )
-        try:
-            in_wl = in_watchlist(mid)
-        except Exception:
-            in_wl = False
+        # Action buttons
+        bc1, bc2 = st.columns(2)
+        with bc1:
+            try:
+                in_wl = in_watchlist(mid)
+            except Exception:
+                in_wl = False
+            if mid and not in_wl:
+                if st.button("+ Watchlist", key=f"sup_wl_{mid}_{_next_key()}"):
+                    add_to_watchlist(mid, title, poster,
+                                     float(rating) if rating else 0.0,
+                                     genres, overview_full)
+                    st.toast(f"✅ **{title}** added to Watchlist!")
+                    st.rerun()
 
-        if mid and not in_wl:
-            sup_key = f"sup_wl_{mid}_{_next_key()}"
-            if st.button("+ Add to Watchlist", key=sup_key):
-                add_to_watchlist(
-                    movie_id  = mid,
-                    title     = title,
-                    poster_url= poster,
-                    rating    = float(rating) if rating else 0.0,
-                    genres    = genres,
-                    overview  = str(movie.get("overview", "")),  # ← THE FIX
-                )
-                st.toast(f"✅ **{title}** added to Watchlist!")
-                st.rerun()
+        with bc2:
+            sq  = title.replace(" ", "+").replace("'", "")
+            url = f"https://www.youtube.com/results?search_query={sq}+official+trailer"
+            st.markdown(
+                f"<a href='{url}' target='_blank' style='text-decoration:none;display:block;'>"
+                f"<div class='trailer-btn' style='height:38px;font-size:0.88rem;'>▶ Watch Trailer</div>"
+                f"</a>",
+                unsafe_allow_html=True,
+            )
