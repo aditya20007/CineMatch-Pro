@@ -662,7 +662,7 @@ def render_sidebar() -> str:
         margin-bottom:5px;">DEVELOPED BY</div>
     <div style="font-family:'Bebas Neue',sans-serif;font-size:1.2rem;
         letter-spacing:0.1em;color:#F2F2FF;margin-bottom:4px;">
-        Aditya Kumar
+        Aditya  singh
     </div>
     <div style="font-family:'DM Mono',monospace;font-size:0.65rem;
         color:#7777AA;margin-bottom:12px;letter-spacing:0.06em;">
