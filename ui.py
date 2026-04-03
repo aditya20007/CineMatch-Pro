@@ -669,14 +669,14 @@ def render_sidebar() -> str:
         Data Scientist · ML Engineer
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
-        <a href="https://github.com/aditya" target="_blank"
+        <a href="https://github.com/aditya20007" target="_blank"
            style="text-decoration:none;display:flex;align-items:center;gap:5px;
            background:rgba(255,255,255,0.06);
            border:1px solid rgba(255,255,255,0.14);
            border-radius:7px;padding:5px 12px;font-size:0.74rem;
            color:#F2F2FF;font-weight:600;letter-spacing:0.04em;
            transition:all 0.2s;">🚀 GitHub</a>
-        <a href="https://linkedin.com/in/aditya" target="_blank"
+        <a href="https://www.linkedin.com/in/aditya-singh-bab941258/" target="_blank"
            style="text-decoration:none;display:flex;align-items:center;gap:5px;
            background:rgba(0,119,181,0.15);
            border:1px solid rgba(0,119,181,0.32);
