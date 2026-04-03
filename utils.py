@@ -1,5 +1,5 @@
 """
-utils.py  —  Data loading, charts, watchlist, helpers
+utils.py  —  CineMatch Pro · Data, Charts, Watchlist, Helpers
 """
 
 import os
@@ -7,7 +7,6 @@ import json
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
 import streamlit as st
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
@@ -69,10 +68,7 @@ def load_ratings() -> pd.DataFrame:
         return pd.DataFrame(columns=["userId", "movieId", "rating"])
 
     df = pd.read_csv(RATINGS_PATH)
-
-    # Limit to 200k rows so SVD trains fast
     df = df.sample(min(len(df), 200_000), random_state=42)
-
     df["userId"]  = df["userId"].astype(int)
     df["movieId"] = df["movieId"].astype(int)
     df["rating"]  = df["rating"].astype(float)
@@ -82,27 +78,35 @@ def load_ratings() -> pd.DataFrame:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# WATCHLIST
+# WATCHLIST — Persistent JSON  (data/watchlist.json)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# --- utils.py (Modified init_watchlist) ---
-
 def init_watchlist():
-    if "watchlist" not in st.session_state:
-        if os.path.exists(WATCHLIST_FILE):
-            try:
-                with open(WATCHLIST_FILE, "r") as f:
-                    data = json.load(f)
-                    # Ensure data is a list to avoid iterable errors
-                    st.session_state["watchlist"] = data if isinstance(data, list) else []
-            except Exception:
+    """
+    Load watchlist from data/watchlist.json into session_state.
+    Creates the data/ directory if it does not exist.
+    Safe to call outside `streamlit run` (test scripts).
+    """
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)          # ensure data/ exists
+        if "watchlist" not in st.session_state:
+            if os.path.exists(WATCHLIST_FILE):
+                try:
+                    with open(WATCHLIST_FILE, "r") as f:
+                        data = json.load(f)
+                    st.session_state["watchlist"] = (
+                        data if isinstance(data, list) else []
+                    )
+                except (json.JSONDecodeError, Exception):
+                    st.session_state["watchlist"] = []
+            else:
                 st.session_state["watchlist"] = []
-        else:
-            st.session_state["watchlist"] = []
+    except Exception:
+        pass  # outside Streamlit runtime — safe to skip
 
 
 def _persist_watchlist():
-    """Save current watchlist to data/watchlist.json."""
+    """Write session watchlist to data/watchlist.json."""
     try:
         os.makedirs(DATA_DIR, exist_ok=True)
         with open(WATCHLIST_FILE, "w") as f:
@@ -112,20 +116,21 @@ def _persist_watchlist():
 
 
 def add_to_watchlist(
-    movie_id:  int,
-    title:     str,
-    poster_url: str  = "",
-    rating:    float = 0.0,
-    genres:    str   = "",
-    overview:  str   = "",          # ← FIX: added overview parameter
+    movie_id:   int,
+    title:      str,
+    poster_url: str   = "",
+    rating:     float = 0.0,
+    genres:     str   = "",
+    overview:   str   = "",
 ) -> bool:
     """
-    Add a movie to the watchlist.
-    Returns False if it was already saved, True on success.
-    Now stores overview so watchlist cards show descriptions.
+    Append a movie to the persistent watchlist.
+    Stores all 6 fields so the Watchlist page works fully offline.
+    Returns True on success, False if already present.
     """
     init_watchlist()
-    if any(m["movie_id"] == movie_id for m in st.session_state["watchlist"]):
+    if any(m["movie_id"] == movie_id
+           for m in st.session_state["watchlist"]):
         return False
     st.session_state["watchlist"].append({
         "movie_id":   movie_id,
@@ -133,7 +138,7 @@ def add_to_watchlist(
         "poster_url": poster_url,
         "rating":     rating,
         "genres":     genres,
-        "overview":   overview,     # ← FIX: was not stored before
+        "overview":   overview,
     })
     _persist_watchlist()
     return True
@@ -150,7 +155,8 @@ def remove_from_watchlist(movie_id: int):
 
 def in_watchlist(movie_id: int) -> bool:
     init_watchlist()
-    return any(m["movie_id"] == movie_id for m in st.session_state["watchlist"])
+    return any(m["movie_id"] == movie_id
+               for m in st.session_state["watchlist"])
 
 
 def clear_watchlist():
@@ -172,7 +178,7 @@ def chart_top_genres(movies_df: pd.DataFrame, n: int = 12) -> go.Figure:
     if not counts:
         return _empty("No genre data")
 
-    top = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:n]
+    top          = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:n]
     labels, vals = zip(*top)
 
     fig = go.Figure(go.Bar(
@@ -201,7 +207,9 @@ def chart_movies_per_year(movies_df: pd.DataFrame) -> go.Figure:
     df = movies_df.copy()
     if "year" not in df.columns:
         if "release_date" in df.columns:
-            df["year"] = pd.to_datetime(df["release_date"], errors="coerce").dt.year
+            df["year"] = pd.to_datetime(
+                df["release_date"], errors="coerce"
+            ).dt.year
         else:
             return _empty("No year data")
 
@@ -220,8 +228,10 @@ def chart_movies_per_year(movies_df: pd.DataFrame) -> go.Figure:
     fig.update_layout(
         **_PLOT,
         title=dict(text="Movies Per Year", font=dict(size=15)),
-        xaxis=dict(title="Year", showgrid=True, gridcolor="rgba(255,255,255,0.04)"),
-        yaxis=dict(title="Count", showgrid=True, gridcolor="rgba(255,255,255,0.04)"),
+        xaxis=dict(title="Year", showgrid=True,
+                   gridcolor="rgba(255,255,255,0.04)"),
+        yaxis=dict(title="Count", showgrid=True,
+                   gridcolor="rgba(255,255,255,0.04)"),
         height=320,
     )
     return fig
@@ -243,7 +253,8 @@ def chart_rating_distribution(movies_df: pd.DataFrame) -> go.Figure:
         **_PLOT,
         title=dict(text="Rating Distribution", font=dict(size=15)),
         xaxis=dict(title="Rating", showgrid=False),
-        yaxis=dict(title="Count", showgrid=True, gridcolor="rgba(255,255,255,0.04)"),
+        yaxis=dict(title="Count", showgrid=True,
+                   gridcolor="rgba(255,255,255,0.04)"),
         bargap=0.05, height=320,
     )
     return fig
@@ -275,7 +286,8 @@ def chart_top_movies(movies_df: pd.DataFrame, n: int = 10) -> go.Figure:
     fig.update_layout(
         **_PLOT,
         title=dict(text=f"Top {n} Rated Movies", font=dict(size=15)),
-        xaxis=dict(range=[0, 11], showgrid=True, gridcolor="rgba(255,255,255,0.04)"),
+        xaxis=dict(range=[0, 11], showgrid=True,
+                   gridcolor="rgba(255,255,255,0.04)"),
         yaxis=dict(autorange="reversed"),
         height=420,
     )
@@ -307,7 +319,8 @@ def star_display(rating) -> str:
 def genre_tags(genres_str: str, max_n: int = 3) -> str:
     if not genres_str or str(genres_str) in ("nan", "", "N/A"):
         return ""
-    parts = [g.strip() for g in str(genres_str).replace("|", ",").split(",")]
+    parts = [g.strip() for g in
+             str(genres_str).replace("|", ",").split(",")]
     return "  ·  ".join(p for p in parts[:max_n] if p)
 
 

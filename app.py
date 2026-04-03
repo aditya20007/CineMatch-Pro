@@ -1,17 +1,25 @@
 """
-app.py  —  CineMatch Pro v3
-============================
-Changes from v2:
-  - Reads filter_rating + filter_years from session_state (set by sidebar)
-  - Passes filters to all model calls so results respect user settings
-  - genre tabs use filtered data
-  - trending() uses filters
-  - surprise_me() uses filters
+app.py  —  CineMatch Pro · Portfolio Edition
+=============================================
+Run:  streamlit run app.py
+
+Pages
+  🏠 Home        — Trending, Top Rated, Browse by Genre, Surprise Me
+  🎬 Recommend   — By movie title + 3-movie taste profile
+  🎭 Mood        — 8 moods → genre → top movies
+  🤖 AI Chat     — Natural language movie requests
+  📊 Dashboard   — Dataset analytics
+  📌 Watchlist   — Persistent saved movies with CSV export
+
+All movie displays respect the Global Filters set in the sidebar
+(min rating + year range stored in st.session_state).
 """
 
+import io
 import streamlit as st
 import pandas as pd
 
+# ── Page config — must be first Streamlit call ────────────────────────────────
 st.set_page_config(
     page_title="CineMatch Pro",
     page_icon="🎬",
@@ -19,6 +27,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ── Local imports ─────────────────────────────────────────────────────────────
 from recommender import build_recommender, MOOD_GENRE_MAP
 from utils import (
     load_movies, load_ratings, init_watchlist,
@@ -29,6 +38,7 @@ from utils import (
 from ui import (
     inject_css, render_sidebar, hero_banner, section_header,
     movie_grid, movie_card, explanation_pill, divider, surprise_card,
+    reset_card_counter,
 )
 from api import get_poster_url, fetch_trending, PLACEHOLDER
 
@@ -39,6 +49,7 @@ from api import get_poster_url, fetch_trending, PLACEHOLDER
 inject_css()
 init_watchlist()
 
+# Session state defaults
 for _k, _v in {
     "chat_history":   [],
     "selected_mood":  None,
@@ -66,27 +77,41 @@ try:
         model, movies_df, ratings_df = get_model()
 except FileNotFoundError as exc:
     st.error(str(exc))
-    st.info("Download movies.csv and ratings.csv from Kaggle → put in data/ folder → refresh.")
+    st.info(
+        "**Fix:**\n"
+        "1. Download `movies.csv` and `ratings.csv` from Kaggle.\n"
+        "2. Place both files in the `data/` folder.\n"
+        "3. Refresh the page."
+    )
     st.stop()
 except Exception as exc:
     st.error(f"Startup error: {exc}")
     st.stop()
 
 all_titles = sorted(movies_df["title"].dropna().unique().tolist())
-page       = render_sidebar()
+
+# ── CRITICAL: Reset UI card counter every rerun ───────────────────────────────
+# ui.py is a cached module — _CARD_COUNTER does NOT auto-reset between
+# Streamlit reruns. Without this, button keys increment across reruns
+# (run1: btn_wl_1_1, run2: btn_wl_1_5) so Streamlit never matches the
+# click event → watchlist button appears broken even though the code is fine.
+reset_card_counter()
+
+page = render_sidebar()
 
 
-# ── Filter helpers ────────────────────────────────────────────────────────────
+# ── Filter helper —  all pages call this ─────────────────────────────────────
 
-def _get_filters():
-    """Return (min_rating, year_range) from session_state."""
+def _get_filters() -> tuple[float, tuple]:
+    """Return (min_rating, (year_min, year_max)) from session_state."""
     return (
         float(st.session_state.get("filter_rating", 0.0)),
         tuple(st.session_state.get("filter_years",  (1990, 2025))),
     )
 
-def _apply_local_filter(df: pd.DataFrame) -> pd.DataFrame:
-    """Apply rating + year filter to a DataFrame directly (for Browse by Genre)."""
+
+def _local_filter(df: pd.DataFrame) -> pd.DataFrame:
+    """Apply session_state filters directly to a DataFrame (for genre tabs)."""
     min_r, (y_min, y_max) = _get_filters()
     result = df.copy()
 
@@ -94,11 +119,25 @@ def _apply_local_filter(df: pd.DataFrame) -> pd.DataFrame:
         result = result[result["vote_average"].fillna(0) >= min_r]
 
     if "release_date" in result.columns:
-        years = (result["release_date"].astype(str).str[:4]
-                 .apply(lambda x: int(x) if x.isdigit() else 0))
+        years = (
+            result["release_date"].astype(str).str[:4]
+            .apply(lambda x: int(x) if x.isdigit() else 0)
+        )
         result = result[years.between(y_min, y_max)]
 
     return result if not result.empty else df
+
+
+def _filter_badge(min_r: float, yr: tuple):
+    """Show a small badge when filters are active."""
+    if min_r > 0 or yr != (1990, 2025):
+        st.markdown(
+            f"<div style='font-size:0.8rem;color:#F5C518;"
+            f"font-family:\"DM Mono\",monospace;margin:-0.4rem 0 0.8rem;'>"
+            f"🔍 Filters: Rating ≥ {min_r} · "
+            f"Years {yr[0]}–{yr[1]}</div>",
+            unsafe_allow_html=True,
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -114,31 +153,28 @@ def page_home():
 
     min_r, yr = _get_filters()
 
+    # ── KPIs ──────────────────────────────────────────────────────────────────
     k1, k2, k3, k4 = st.columns(4)
     with k1: st.metric("🎬 Movies",   f"{len(movies_df):,}")
-    with k2: st.metric("⭐ Ratings",  f"{len(ratings_df):,}" if not ratings_df.empty else "N/A")
+    with k2: st.metric("⭐ Ratings",  f"{len(ratings_df):,}"
+                       if not ratings_df.empty else "N/A")
     with k3:
         genre_set = set()
         for g in movies_df["genres"].dropna():
             genre_set.update(str(g).split("|"))
         st.metric("🎭 Genres", len(genre_set))
-    with k4: st.metric("📌 Watchlist", len(st.session_state.get("watchlist", [])))
+    with k4:
+        st.metric("📌 Watchlist",
+                  len(st.session_state.get("watchlist", [])))
 
-    # Show active filter badge
-    if min_r > 0 or yr != (1990, 2025):
-        st.markdown(
-            f"<div style='font-size:0.8rem;color:#F5C518;margin:-0.5rem 0 0.5rem;"
-            f"font-family:DM Mono,monospace;'>"
-            f"🔍 Filters active: Rating ≥ {min_r} · Years {yr[0]}–{yr[1]}</div>",
-            unsafe_allow_html=True,
-        )
-
+    _filter_badge(min_r, yr)
     divider()
 
-    # Surprise Me
+    # ── Surprise Me ───────────────────────────────────────────────────────────
     col_t, col_b = st.columns([4, 1])
     with col_t:
-        section_header("🎲 Surprise Me", "One great movie, hand-picked by the AI")
+        section_header("🎲 Surprise Me",
+                       "One great movie, hand-picked by the AI")
     with col_b:
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🎲 Surprise Me!", use_container_width=True):
@@ -151,27 +187,29 @@ def page_home():
         surprise_card(st.session_state["surprise_movie"])
         divider()
 
-    # OMDB trending
+    # ── Trending (OMDB) ───────────────────────────────────────────────────────
     omdb_trending = fetch_trending(n=8)
     if omdb_trending:
         section_header("🔥 Trending Now", "Fetched live via OMDB API")
         movie_grid(omdb_trending, cols=4)
         divider()
 
-    # Top rated (filter-aware)
+    # ── Top Rated (filter-aware) ──────────────────────────────────────────────
     section_header("⭐ Top Rated")
     movie_grid(model.trending(n=8, min_rating=min_r, year_range=yr), cols=4)
     divider()
 
-    # Browse by genre (filter-aware)
+    # ── Browse by Genre (filter-aware) ────────────────────────────────────────
     section_header("🎭 Browse by Genre")
     genre_list = ["Action", "Comedy", "Drama", "Thriller",
                   "Science Fiction", "Romance", "Horror", "Animation"]
     tabs = st.tabs(genre_list[:6])
     for tab, genre in zip(tabs, genre_list[:6]):
         with tab:
-            mask = movies_df["genres"].str.contains(genre, case=False, na=False)
-            gdf  = _apply_local_filter(movies_df[mask])
+            mask = movies_df["genres"].str.contains(
+                genre, case=False, na=False
+            )
+            gdf = _local_filter(movies_df[mask])
             if "vote_average" in gdf.columns:
                 gdf = gdf.nlargest(8, "vote_average")
             else:
@@ -186,12 +224,14 @@ def page_home():
 def page_recommend():
     hero_banner(
         "Movie Recommendations",
-        "Choose a movie you love — or share your top 3 — and we find your next obsession.",
+        "Choose a movie you love — or share your top 3 — "
+        "and we find your next obsession.",
     )
 
-    min_r, yr = _get_filters()
+    min_r, yr  = _get_filters()
     tab1, tab2 = st.tabs(["🎬 By Movie Title", "🎯 3-Movie Taste Profile"])
 
+    # ── Tab 1 ─────────────────────────────────────────────────────────────────
     with tab1:
         st.markdown("<br>", unsafe_allow_html=True)
         cs, cn = st.columns([3, 1])
@@ -207,20 +247,26 @@ def page_recommend():
         if selected:
             with st.spinner(f"Analysing **{selected}** …"):
                 result, explanation = model.recommend_by_movie(
-                    selected, n=n_recs, min_rating=min_r, year_range=yr
+                    selected, n=n_recs,
+                    min_rating=min_r, year_range=yr,
                 )
             if isinstance(result, pd.DataFrame) and not result.empty:
                 explanation_pill(explanation)
                 section_header(f"Because You Watched: {selected}")
                 movie_grid(result, cols=4)
             else:
-                st.warning(f'"{selected}" not found or no results with current filters.')
+                st.warning(
+                    f'"{selected}" not found or no results '
+                    f'with current filters.'
+                )
 
+    # ── Tab 2 ─────────────────────────────────────────────────────────────────
     with tab2:
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown(
             "<div style='font-size:0.88rem;color:#9999BB;margin-bottom:1rem;'>"
-            "Select 3 movies that define your taste.</div>",
+            "Select 3 movies that define your taste. "
+            "We'll blend them into a personal profile.</div>",
             unsafe_allow_html=True,
         )
         c1, c2, c3 = st.columns(3)
@@ -235,10 +281,12 @@ def page_recommend():
                               format_func=lambda x: "Pick…" if x == "" else x)
 
         chosen = [x for x in [m1, m2, m3] if x]
-        if st.button("🎯 Build My Profile", use_container_width=True) and chosen:
+        if st.button("🎯 Build My Profile",
+                     use_container_width=True) and chosen:
             with st.spinner("Building taste profile …"):
                 result, explanation = model.recommend_by_taste(
-                    chosen, n=5, min_rating=min_r, year_range=yr
+                    chosen, n=5,
+                    min_rating=min_r, year_range=yr,
                 )
             if not result.empty:
                 explanation_pill(explanation)
@@ -267,14 +315,16 @@ def page_mood():
         with btn_cols[i % 4]:
             active = st.session_state["selected_mood"] == mood
             label  = f"{'✓ ' if active else ''}{mood}"
-            if st.button(label, key=f"mood_{mood}", use_container_width=True):
+            if st.button(label, key=f"mood_{mood}",
+                         use_container_width=True):
                 st.session_state["selected_mood"] = mood
                 st.rerun()
 
     mood = st.session_state["selected_mood"]
     if not mood:
         st.markdown(
-            "<div style='text-align:center;color:#9999BB;padding:2.5rem;font-size:0.95rem;'>"
+            "<div style='text-align:center;color:#9999BB;"
+            "padding:2.5rem;font-size:0.95rem;'>"
             "👆 Choose a mood above</div>",
             unsafe_allow_html=True,
         )
@@ -299,7 +349,8 @@ def page_mood():
 def page_chat():
     hero_banner(
         "AI Movie Chat",
-        "Describe what you want in plain English — genre, mood, reference movie.",
+        "Describe what you want in plain English — genre, mood, reference movie. "
+        "The AI does the rest.",
     )
 
     for msg in st.session_state["chat_history"]:
@@ -342,8 +393,10 @@ def page_chat():
     ci, cb = st.columns([5, 1])
     with ci:
         user_input = st.text_input(
-            "msg", placeholder="e.g. 'Dark thriller like The Dark Knight'…",
-            label_visibility="collapsed", key="chat_inp",
+            "msg",
+            placeholder="e.g. 'Dark thriller like The Dark Knight'…",
+            label_visibility="collapsed",
+            key="chat_inp",
         )
     with cb:
         if st.button("Send →", use_container_width=True) and user_input.strip():
@@ -358,9 +411,12 @@ def page_chat():
 
 def _process_chat(text: str):
     st.session_state["chat_history"].append({"role": "user", "text": text})
+
     result = model.chat_recommend(text, n=5)
-    recs_df, seed, genres_found = (result if isinstance(result, tuple)
-                                   else (result, None, []))
+    recs_df, seed, genres_found = (
+        result if isinstance(result, tuple) else (result, None, [])
+    )
+
     if seed:
         resp = f"Based on <b>{seed}</b>, here are movies you'll love:"
     elif genres_found:
@@ -372,15 +428,15 @@ def _process_chat(text: str):
     if hasattr(recs_df, "iterrows"):
         for _, row in recs_df.iterrows():
             movies_list.append({
-                "movie_id": int(row.get("movieId", 0)),
-                "title":    row.get("title", ""),
+                "movie_id":   int(row.get("movieId", 0)),
+                "title":      row.get("title", ""),
                 "poster_url": get_poster_url(
                     title=row.get("title", ""),
                     poster_path=row.get("poster_path", ""),
                 ),
-                "rating":   row.get("vote_average", 0),
-                "genres":   row.get("genres", ""),
-                "overview": row.get("overview", ""),
+                "rating":     row.get("vote_average", 0),
+                "genres":     row.get("genres", ""),
+                "overview":   row.get("overview", ""),
             })
 
     if not movies_list:
@@ -398,14 +454,18 @@ def _process_chat(text: str):
 def page_dashboard():
     hero_banner(
         "Analytics Dashboard",
-        "Explore the dataset — genres, year trends, ratings, and top-performing movies.",
+        "Explore the dataset — genres, year trends, ratings, "
+        "and top-performing movies.",
     )
 
     k1, k2, k3, k4 = st.columns(4)
     with k1: st.metric("Total Movies",  f"{len(movies_df):,}")
-    with k2: st.metric("Total Ratings", f"{len(ratings_df):,}" if not ratings_df.empty else "N/A")
+    with k2: st.metric("Total Ratings",
+                       f"{len(ratings_df):,}"
+                       if not ratings_df.empty else "N/A")
     with k3:
-        avg = movies_df["vote_average"].mean() if "vote_average" in movies_df.columns else 0
+        avg = (movies_df["vote_average"].mean()
+               if "vote_average" in movies_df.columns else 0)
         st.metric("Avg Rating", f"{avg:.2f} ⭐")
     with k4:
         gs = set()
@@ -418,32 +478,40 @@ def page_dashboard():
     ca, cb_ = st.columns(2)
     with ca:
         st.plotly_chart(chart_top_genres(movies_df),
-                        use_container_width=True, config={"displayModeBar": False})
+                        use_container_width=True,
+                        config={"displayModeBar": False})
     with cb_:
         st.plotly_chart(chart_movies_per_year(movies_df),
-                        use_container_width=True, config={"displayModeBar": False})
+                        use_container_width=True,
+                        config={"displayModeBar": False})
 
     divider()
     section_header("Ratings & Top Movies")
     cc, cd = st.columns(2)
     with cc:
         st.plotly_chart(chart_rating_distribution(movies_df),
-                        use_container_width=True, config={"displayModeBar": False})
+                        use_container_width=True,
+                        config={"displayModeBar": False})
     with cd:
         st.plotly_chart(chart_top_movies(movies_df),
-                        use_container_width=True, config={"displayModeBar": False})
+                        use_container_width=True,
+                        config={"displayModeBar": False})
 
     divider()
     section_header("📋 Dataset Explorer")
     with st.expander("Browse movies", expanded=False):
         cols_show = [c for c in
-                     ["title", "genres", "vote_average", "release_date", "overview"]
+                     ["title", "genres", "vote_average",
+                      "release_date", "overview"]
                      if c in movies_df.columns]
-        q  = st.text_input("Search title:", placeholder="e.g. Batman", key="ds_q")
+        q  = st.text_input("Search title:",
+                           placeholder="e.g. Batman", key="ds_q")
         df = movies_df[cols_show]
         if q:
-            df = df[df["title"].str.lower().str.contains(q.lower(), na=False)]
-        st.dataframe(df.head(100), use_container_width=True, hide_index=True)
+            df = df[df["title"].str.lower().str.contains(
+                q.lower(), na=False)]
+        st.dataframe(df.head(100),
+                     use_container_width=True, hide_index=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -459,10 +527,11 @@ def page_watchlist():
         st.markdown(
             "<div style='text-align:center;padding:3rem;color:#9999BB;'>"
             "<div style='font-size:3.5rem;'>📌</div>"
-            "<div style='font-size:1.1rem;margin-top:0.8rem;'>Your watchlist is empty.</div>"
+            "<div style='font-size:1.1rem;margin-top:0.8rem;'>"
+            "Your watchlist is empty.</div>"
             "<div style='font-size:0.82rem;margin-top:0.4rem;'>"
-            "Browse movies and click <b>+ Watchlist</b> to save them here.</div>"
-            "</div>",
+            "Browse movies and click <b>+ Watchlist</b> to save them here."
+            "</div></div>",
             unsafe_allow_html=True,
         )
         return
@@ -477,7 +546,8 @@ def page_watchlist():
     for i, movie in enumerate(wl):
         with grid[i % 4]:
             movie_card(movie, show_wl_btn=False)
-            if st.button("🗑 Remove", key=f"rm_{movie['movie_id']}_{i}",
+            if st.button("🗑 Remove",
+                         key=f"rm_{movie['movie_id']}_{i}",
                          use_container_width=True):
                 remove_from_watchlist(movie["movie_id"])
                 st.toast(f"Removed **{movie['title']}**")
@@ -485,20 +555,20 @@ def page_watchlist():
 
     divider()
 
-    # Export watchlist as CSV
-    import io
-    wl_df = pd.DataFrame([{
-        "Title":   m.get("title",""),
-        "Rating":  m.get("rating",""),
-        "Genres":  m.get("genres",""),
+    # ── CSV Export ────────────────────────────────────────────────────────────
+    wl_df   = pd.DataFrame([{
+        "Title":   m.get("title", ""),
+        "Rating":  m.get("rating", ""),
+        "Genres":  m.get("genres", ""),
     } for m in wl])
     csv_buf = io.StringIO()
     wl_df.to_csv(csv_buf, index=False)
+
     st.download_button(
-        label="📥 Export Watchlist as CSV",
-        data=csv_buf.getvalue(),
-        file_name="my_watchlist.csv",
-        mime="text/csv",
+        label    = "📥 Export Watchlist as CSV",
+        data     = csv_buf.getvalue(),
+        file_name= "my_watchlist.csv",
+        mime     = "text/csv",
     )
 
     st.markdown("<br>", unsafe_allow_html=True)
