@@ -1,34 +1,42 @@
 [
   {
-    "movie_id": 6,
-    "title": "Heat (1995)",
+    "movie_id": 7,
+    "title": "Sabrina (1995)",
     "poster_url": "https://via.placeholder.com/300x450/1a1a2e/E50914?text=No+Poster",
     "rating": 0.0,
-    "genres": "Action|Crime|Thriller",
+    "genres": "Comedy|Romance",
     "overview": ""
   },
   {
-    "movie_id": 9,
-    "title": "Sudden Death (1995)",
+    "movie_id": 11,
+    "title": "American President, The (1995)",
     "poster_url": "https://via.placeholder.com/300x450/1a1a2e/E50914?text=No+Poster",
     "rating": 0.0,
-    "genres": "Action",
+    "genres": "Comedy|Drama|Romance",
     "overview": ""
   },
   {
-    "movie_id": 10,
-    "title": "GoldenEye (1995)",
+    "movie_id": 1,
+    "title": "Toy Story (1995)",
     "poster_url": "https://via.placeholder.com/300x450/1a1a2e/E50914?text=No+Poster",
     "rating": 0.0,
-    "genres": "Action|Adventure|Thriller",
+    "genres": "Adventure|Animation|Children|Comedy|Fantasy",
     "overview": ""
   },
   {
-    "movie_id": 15,
-    "title": "Cutthroat Island (1995)",
+    "movie_id": 202037,
+    "title": "Human Nature (2019)",
     "poster_url": "https://via.placeholder.com/300x450/1a1a2e/E50914?text=No+Poster",
     "rating": 0.0,
-    "genres": "Action|Adventure|Romance",
+    "genres": "Documentary",
     "overview": ""
+  },
+  {
+    "movie_id": 986445,
+    "title": "Dune",
+    "poster_url": "https://m.media-amazon.com/images/M/MV5BMGJlMGM3NDAtOWNhMy00MWExLWI2MzEtMDQ0ZDIzZDY5ZmQ2XkEyXkFqcGc@._V1_SX300.jpg",
+    "rating": 6.3,
+    "genres": "Action, Adventure, Sci-Fi",
+    "overview": "A Duke's son leads desert warriors against the galactic emperor and his father's evil nemesis to free their desert world from the emperor's rule."
   }
 ]
